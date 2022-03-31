@@ -39,19 +39,22 @@ def optimize_model(model_path : Path):
     sess_option.graph_optimization_level = GraphOptimizationLevel.ORT_ENABLE_BASIC
     _ = InferenceSession(model_path.as_posix(), sess_option, providers=['CPUExecutionProvider'])
     optimized_model = onnx.load(opt_model_path.as_posix())
-    return optimized_model
+    return optimized_model, opt_model_path
 
 
 def load_model(model_path : Path, optimize=True, handle_gemm_with_matmul=True):
-
-    model = optimize_model(Path(model_path)) if optimize else onnx.load(Path(model_path))
+    if optimize:
+        model, new_path = optimize_model(Path(model_path))
+    else:
+        model = onnx.load(Path(model_path))
+        new_path = model_path
 
     if handle_gemm_with_matmul:
         onnx_model = ONNXModel(model)
         onnx_model.replace_gemm_with_matmul()
-        return onnx_model.model
+        return onnx_model.model, new_path
 
-    return model
+    return model, new_path
 
 
 def check_static_quant_arguments(quant_format : QuantFormat,
@@ -342,13 +345,13 @@ def quantize_dynamic(model_input: Path,
     if not op_types_to_quantize or len(op_types_to_quantize) == 0:
         op_types_to_quantize = list(IntegerOpsRegistry.keys())
 
-    model = load_model(Path(model_input), optimize_model)
+    model, new_path = load_model(Path(model_input), optimize_model)
 
     if 'MatMulConstBOnly' not in extra_options:
         extra_options['MatMulConstBOnly'] = True
 
     quantizer = ONNXQuantizer(
-        model,
+        new_path,
         per_channel,
         reduce_range,
         mode,
